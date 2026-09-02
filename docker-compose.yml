@@ -1,0 +1,13 @@
+services:
+  ppg-bot:
+    build: .
+    image: ppg-guru-bot:latest
+    env_file: .env
+    ports:
+      # Bind to localhost only — NGINX on the host handles public TLS
+      # termination and proxies to this port. Do not expose 0.0.0.0 in prod.
+      - "127.0.0.1:8801:8000"
+    volumes:
+      - ./data:/app/data
+      - ./manuals:/app/manuals:ro
+    restart: unless-stopped
