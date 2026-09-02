@@ -11,6 +11,11 @@ and motors, grounded in the manuals under `manuals/`.
   (`OPENROUTER_MODEL` in `.env`), not hardcoded, so it can be swapped
   without a code change. Browse available slugs at
   https://openrouter.ai/models.
+- Remembers the last `MEMORY_MAX_MESSAGES` (default 20) messages of each
+  *individual* pilot's conversation, so follow-up questions work — even
+  though everyone shares the same group chat, memory is keyed per LINE
+  user, not per group, so one pilot's thread never leaks into another's.
+  It's in-process only (cleared on restart), not a persisted chat log.
 
 ## Adding manuals (e.g. motors, later)
 

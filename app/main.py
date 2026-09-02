@@ -16,6 +16,7 @@ from linebot.v3.webhooks import FollowEvent, JoinEvent, MessageEvent, TextMessag
 
 from app.config import settings
 from app.ingest import build_index
+from app import memory
 from app.rag import answer
 from app.richtext import build_reply_message
 
@@ -65,6 +66,18 @@ def get_source_id(source) -> str | None:
     if source_type == "room":
         return getattr(source, "room_id", None)
     return None
+
+
+def get_user_id(source) -> str | None:
+    """The LINE user_id of whoever actually sent the message.
+
+    Distinct from get_source_id(): in a group/room that returns the shared
+    group_id/room_id (used for the access whitelist), while this returns
+    the individual sender's user_id (used to key per-user memory, so each
+    pilot in a shared group keeps their own conversation thread). May be
+    None for group members who haven't added the bot as a friend.
+    """
+    return getattr(source, "user_id", None)
 
 
 def is_allowed(source) -> bool:
@@ -136,8 +149,13 @@ async def handle_event(event: MessageEvent) -> None:
     if not text:
         reply_text = "Hi! Ask me a technical question about a paramotor wing or motor."
     else:
+        user_id = get_user_id(event.source)
         try:
-            reply_text = await answer(text)
+            history = memory.get_history(user_id) if user_id else None
+            reply_text = await answer(text, history=history)
+            if user_id:
+                memory.append(user_id, "user", text)
+                memory.append(user_id, "assistant", reply_text)
         except Exception:
             logger.exception("RAG/LLM call failed")
             reply_text = "Sorry, something went wrong answering that. Please try again in a moment."

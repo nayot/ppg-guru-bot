@@ -20,6 +20,10 @@ maintenance, pre-flight checks, weight limits), be precise and add a brief \
 reminder to follow the manufacturer's official procedure / a certified \
 instructor before acting.
 - Reply in the SAME language the user asked the question in.
+- Earlier turns of this conversation may appear above the current question. \
+Use them only to understand context (e.g. what "it" or "that wing" refers \
+to) — never as a source of facts. Facts must always come from the manual \
+excerpts provided below for THIS question.
 - Keep answers concise and practical; this is a chat message, not a document.
 - Formatting: use **bold** for key specs/values, and a Markdown table \
 (header row, `---` separator row, data rows, all using `|`) when comparing \
@@ -64,12 +68,28 @@ def build_context(hits: list[dict]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
-async def answer(query: str) -> str:
-    hits = retrieve(query)
+def _expand_query(query: str, history: list[dict] | None) -> str:
+    """Fold the pilot's last question into the retrieval query.
+
+    Retrieval only ever sees the current question's text. A follow-up like
+    "what about its max wing loading?" has no wing name in it, so on its
+    own it retrieves nothing useful — prepending the last thing they asked
+    gives the embedding something concrete to match against.
+    """
+    if not history:
+        return query
+    last_user = next(
+        (m["content"] for m in reversed(history) if m["role"] == "user"), None
+    )
+    return f"{last_user} {query}" if last_user else query
+
+
+async def answer(query: str, history: list[dict] | None = None) -> str:
+    hits = retrieve(_expand_query(query, history))
     if not hits:
         context = "(no manuals indexed yet)"
     else:
         context = build_context(hits)
 
     user_prompt = f"Manual excerpts:\n\n{context}\n\n---\n\nPilot's question: {query}"
-    return await chat(SYSTEM_PROMPT, user_prompt)
+    return await chat(SYSTEM_PROMPT, user_prompt, history=history)
