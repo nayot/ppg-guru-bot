@@ -22,5 +22,9 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     top_k: int = 5
 
+    # Comma-separated LINE user/group/room IDs allowed to use the bot.
+    # Empty (default) means unrestricted.
+    allowed_source_ids: str = ""
+
 
 settings = Settings()

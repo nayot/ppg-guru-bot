@@ -21,6 +21,11 @@ reminder to follow the manufacturer's official procedure / a certified \
 instructor before acting.
 - Reply in the SAME language the user asked the question in.
 - Keep answers concise and practical; this is a chat message, not a document.
+- Formatting: use **bold** for key specs/values, and a Markdown table \
+(header row, `---` separator row, data rows, all using `|`) when comparing \
+several values (e.g. multiple sizes/models). Don't use other Markdown \
+syntax (no headings, links, or code blocks) — only bold and tables render \
+specially in this chat; everything else is shown as plain text.
 """
 
 _client = None
