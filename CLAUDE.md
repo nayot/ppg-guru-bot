@@ -95,14 +95,22 @@ a specific wing). Two things to keep in mind if you touch this:
 
 ## Adding manuals
 
-Only `manuals/wings/...` is populated today (Dudek Hadron 3/4 & Nucleon 4,
-Flow Cosmos Power 2, ITV Piper 2, MacPara Colorado 2). Motors were
-deliberately skipped for the initial build. To add a category or model:
+`manuals/wings/...` (Dudek Hadron 3/4 & Nucleon 4, Flow Cosmos Power 2,
+ITV Piper 2, MacPara Colorado 2) and `manuals/motors/...` (Ciscomotors
+C-Max, PAP Top 80, Polini Thor 100/Thor 200, Simonini Mini 2 Plus,
+Vittorazi Atom 80, Vittorazi Moster 185 Plus) are both populated. To add
+another category, brand, or model:
 
 1. Source PDF → `pdf/`, convert to Markdown (e.g. `pdf-to-markdown` skill),
    save as `manuals/<wings|motors>/<Brand>/<Model>/<Year>/manual.md`. The
    path components are read as metadata and shown in citations — keep them
-   accurate/consistent.
+   accurate/consistent. `Year` must be a real edition/print/revision year
+   found in the manual's own text or trustworthy file metadata — use the
+   literal folder name `undated` instead of guessing when neither exists.
+   (Two of the motor manuals hit this: `Polini/Thor-100/undated` and
+   `Simonini/Mini-2-Plus/undated` were both sourced from a manualslib.com
+   PDF export whose only embedded date was when that export was rendered,
+   not any real manufacturer edition date — not usable evidence.)
 2. `docker compose exec ppg-bot python -m app.ingest --rebuild` on whichever
    host serves traffic.
 3. Sanity-check with `scripts/ask.py --show-retrieval "<question>"` before

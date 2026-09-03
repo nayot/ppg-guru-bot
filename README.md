@@ -17,22 +17,28 @@ and motors, grounded in the manuals under `manuals/`.
   user, not per group, so one pilot's thread never leaks into another's.
   It's in-process only (cleared on restart), not a persisted chat log.
 
-## Adding manuals (e.g. motors, later)
+## Adding manuals
 
-Only wings are indexed today (`manuals/wings/...`) — motors were skipped
-for now. To add a category (motors, or a new wing brand) later:
+Both wings (`manuals/wings/...`) and motors (`manuals/motors/...`) are
+indexed today. To add a category or a new brand/model:
 
 1. Put the source PDF(s) in `pdf/`.
 2. Convert each PDF to Markdown (e.g. with the `pdf-to-markdown` skill in
-   Claude Code — same process used for the existing wing manuals) and save
+   Claude Code — same process used for the existing manuals) and save
    the result as:
    ```
    manuals/<wings|motors>/<Brand>/<Model>/<Year>/manual.md
    ```
-   Example: `manuals/motors/Vittorazi/Moster-185/2023/manual.md`.
+   Example: `manuals/motors/Vittorazi/Moster-185-Plus/2025/manual.md`.
    The folder names (`Brand`/`Model`/`Year`) are read as metadata and shown
    in the bot's citations, so keep them accurate and consistent with the
-   existing wing folders.
+   existing folders. `Year` should be the manual's real edition/print/
+   revision year; use the literal folder name `undated` instead of
+   guessing when neither the manual's own text nor its PDF metadata
+   carries a trustworthy date (e.g. `manuals/motors/Polini/Thor-100/undated`
+   and `manuals/motors/Simonini/Mini-2-Plus/undated` — both sourced from a
+   third-party PDF mirror whose file metadata only reflected when that
+   mirror page was exported, not any real manufacturer edition date).
 3. Rebuild the vector index so the bot picks up the new content:
    ```bash
    docker compose exec ppg-bot python -m app.ingest --rebuild
@@ -120,9 +126,9 @@ docker compose up -d --force-recreate
 
 ## Notes / follow-ups
 
-- Motor manuals aren't in `manuals/` yet (skipped for the initial launch)
-  — the bot will answer wing questions well today but has nothing to draw
-  on for motors until those are added. See "Adding manuals" above.
+- Motors currently covered: Ciscomotors C-Max, PAP Top 80, Polini
+  Thor 100/Thor 200, Simonini Mini 2 Plus, Vittorazi Atom 80, and
+  Vittorazi Moster 185 Plus. See "Adding manuals" above to add more.
 - Answers are generated only from retrieved manual excerpts and the model
   is instructed to say so when it can't find something — but this is not a
   substitute for the manufacturer's manual or a certified instructor,
