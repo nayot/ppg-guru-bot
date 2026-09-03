@@ -20,6 +20,11 @@ maintenance, pre-flight checks, weight limits), be precise and add a brief \
 reminder to follow the manufacturer's official procedure / a certified \
 instructor before acting.
 - Reply in the SAME language the user asked the question in.
+- A catalog of all manuals currently indexed (brand/model/year, grouped by \
+category) is provided below, separate from the excerpts. Use it ONLY to \
+answer questions about what products/manuals you cover (e.g. "list all \
+motors", "do you have the X wing"). Never use it as a source of technical \
+specs or facts — those must always come from the excerpts.
 - Earlier turns of this conversation may appear above the current question. \
 Use them only to understand context (e.g. what "it" or "that wing" refers \
 to) — never as a source of facts. Facts must always come from the manual \
@@ -59,6 +64,32 @@ def retrieve(query: str, k: int | None = None) -> list[dict]:
     return hits
 
 
+def list_catalog() -> str:
+    """Every (category, brand, model, year) currently indexed, grouped by category.
+
+    Vector search only ever returns the top-k semantically nearest chunks, so
+    it can't answer "list all X" / "what do you cover" questions on its own —
+    those need the full set, not a similarity match. This reads it straight
+    from the collection's metadata instead of searching.
+    """
+    collection = _get_collection()
+    if collection.count() == 0:
+        return "(no manuals indexed yet)"
+    got = collection.get(include=["metadatas"])
+    entries = {
+        (m.get("category"), m.get("brand"), m.get("model"), m.get("year"))
+        for m in got["metadatas"]
+    }
+    by_category: dict[str, list[str]] = {}
+    for category, brand, model, year in entries:
+        by_category.setdefault(category or "?", []).append(f"{brand} {model} ({year})")
+    lines = [
+        f"{category}: {', '.join(sorted(items))}"
+        for category, items in sorted(by_category.items())
+    ]
+    return "\n".join(lines)
+
+
 def build_context(hits: list[dict]) -> str:
     blocks = []
     for h in hits:
@@ -91,5 +122,9 @@ async def answer(query: str, history: list[dict] | None = None) -> str:
     else:
         context = build_context(hits)
 
-    user_prompt = f"Manual excerpts:\n\n{context}\n\n---\n\nPilot's question: {query}"
+    catalog = list_catalog()
+    user_prompt = (
+        f"Catalog of indexed manuals:\n\n{catalog}\n\n---\n\n"
+        f"Manual excerpts:\n\n{context}\n\n---\n\nPilot's question: {query}"
+    )
     return await chat(SYSTEM_PROMPT, user_prompt, history=history)
