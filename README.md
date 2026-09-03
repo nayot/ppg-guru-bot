@@ -35,10 +35,17 @@ indexed today. To add a category or a new brand/model:
    existing folders. `Year` should be the manual's real edition/print/
    revision year; use the literal folder name `undated` instead of
    guessing when neither the manual's own text nor its PDF metadata
-   carries a trustworthy date (e.g. `manuals/motors/Polini/Thor-100/undated`
-   and `manuals/motors/Simonini/Mini-2-Plus/undated` — both sourced from a
-   third-party PDF mirror whose file metadata only reflected when that
-   mirror page was exported, not any real manufacturer edition date).
+   carries a trustworthy date (e.g. `manuals/motors/Polini/Thor-100/undated`,
+   `manuals/motors/Simonini/Mini-2-Plus/undated` and
+   `manuals/motors/Sky-Engines/Sky-110S/undated` — all sourced from a
+   third-party PDF mirror (manualslib.com) whose file metadata only
+   reflected when that mirror page was exported, not any real manufacturer
+   edition date).
+   `manuals/motors/Sky-Engines/Sky-150/2021` is the opposite case: no date
+   anywhere in the manual text, but the PDF's own metadata is a single-pass
+   Microsoft Word 2019 export authored 2021-02-03 by the manufacturer, which
+   is trustworthy enough to date the folder — the `manual.md` header records
+   where the year came from.
 3. Rebuild the vector index so the bot picks up the new content:
    ```bash
    docker compose exec ppg-bot python -m app.ingest --rebuild
@@ -127,8 +134,9 @@ docker compose up -d --force-recreate
 ## Notes / follow-ups
 
 - Motors currently covered: Ciscomotors C-Max, PAP Top 80, Polini
-  Thor 100/Thor 200, Simonini Mini 2 Plus, Vittorazi Atom 80, and
-  Vittorazi Moster 185 Plus. See "Adding manuals" above to add more.
+  Thor 100/Thor 200, Simonini Mini 2 Plus, Sky Engines SKY 110S/SKY 150,
+  Vittorazi Atom 80, and Vittorazi Moster 185 Plus. See "Adding manuals"
+  above to add more.
 - Answers are generated only from retrieved manual excerpts and the model
   is instructed to say so when it can't find something — but this is not a
   substitute for the manufacturer's manual or a certified instructor,

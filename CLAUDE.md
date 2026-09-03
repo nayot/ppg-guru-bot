@@ -98,8 +98,8 @@ a specific wing). Two things to keep in mind if you touch this:
 `manuals/wings/...` (Dudek Hadron 3/4 & Nucleon 4, Flow Cosmos Power 2,
 ITV Piper 2, MacPara Colorado 2) and `manuals/motors/...` (Ciscomotors
 C-Max, PAP Top 80, Polini Thor 100/Thor 200, Simonini Mini 2 Plus,
-Vittorazi Atom 80, Vittorazi Moster 185 Plus) are both populated. To add
-another category, brand, or model:
+Sky Engines SKY 110S/SKY 150, Vittorazi Atom 80, Vittorazi Moster 185
+Plus) are both populated. To add another category, brand, or model:
 
 1. Source PDF → `pdf/`, convert to Markdown (e.g. `pdf-to-markdown` skill),
    save as `manuals/<wings|motors>/<Brand>/<Model>/<Year>/manual.md`. The
@@ -111,6 +111,15 @@ another category, brand, or model:
    `Simonini/Mini-2-Plus/undated` were both sourced from a manualslib.com
    PDF export whose only embedded date was when that export was rendered,
    not any real manufacturer edition date — not usable evidence.)
+   `Sky-Engines/Sky-110S/undated` is a third, same reason and verified
+   directly: that PDF's own metadata names its manualslib.com source page
+   and a wkhtmltopdf render date, and the manual text carries no date.
+   Conversely, `Sky-Engines/Sky-150/2021` is the one folder dated purely
+   from file metadata: that manual's text carries no date at all, but the
+   PDF is a single-pass Microsoft Word 2019 export authored 2021-02-03 by
+   the manufacturer itself, which is the trustworthy-metadata case the rule
+   allows. The `manual.md` provenance line says so explicitly, since the
+   citation asserts a year the manual never prints.
 2. `docker compose exec ppg-bot python -m app.ingest --rebuild` on whichever
    host serves traffic.
 3. Sanity-check with `scripts/ask.py --show-retrieval "<question>"` before
