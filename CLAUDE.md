@@ -195,12 +195,26 @@ Plus) are both populated. To add another category, brand, or model:
 No code changes are needed — `ingest.py` walks all of `manuals/` regardless
 of category name.
 
-## Local dev vs. production
+## This machine is production
 
-This dev machine isn't publicly reachable, so real LINE end-to-end testing
-only happens on the production host (`eng-ai.buu.ac.th`) or via a temporary
-tunnel. Locally, test the RAG+LLM pipeline directly with `scripts/ask.py`,
-bypassing LINE entirely (see README.md for exact commands).
+**There is no separate dev box.** `hostname` is `eng-ai`;
+`eng-ai.buu.ac.th` resolves to 10.5.23.117, one of this host's own
+addresses; NGINX here proxies `/line/webhook` to the container on
+`127.0.0.1:8801`; and that public URL returns `400` to an unsigned POST,
+which is signature verification rejecting it — the live webhook is this
+container, serving this checkout. (An earlier version of these notes claimed
+this was an unreachable dev machine. It was wrong; don't reinstate it.)
+
+Consequences worth holding onto:
+
+- **No staging.** Every `docker compose up -d` / `restart` here briefly
+  drops the live webhook and wipes every pilot's in-process conversation
+  memory. Prefer `scripts/ask.py`, which exercises the RAG+LLM path and
+  touches no LINE state.
+- **`--rebuild` of either index runs against the live bot too.** The nightly
+  `scripts/refresh-website.sh` is already installed in `nayot`'s crontab
+  here (03:30), and the `website` collection is already built — there is no
+  other host that needs either.
 
 Production binds to `127.0.0.1:8801` only; NGINX terminates TLS and proxies
 `/line/webhook` — the proxy config must not rewrite/buffer the body, since

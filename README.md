@@ -58,9 +58,9 @@ indexed today. To add a category or a new brand/model:
    ```bash
    docker compose exec ppg-bot python -m app.ingest --rebuild
    ```
-   Run this on whichever host is actually serving traffic (production,
-   once deployed) — `data/` (the index) is local to each host/volume, it
-   isn't synced automatically just by adding files.
+   Run it here — this host serves the live traffic, and `data/` (the
+   index) lives in a local volume, so it isn't updated just by adding
+   files to `manuals/`.
 4. Sanity-check retrieval before trusting it in the group, e.g.:
    ```bash
    docker compose exec ppg-bot python -c "
@@ -202,15 +202,20 @@ A question answered on the first pass costs exactly one LLM call. Replies
 are dispatched from a FastAPI background task, so the retry's latency never
 risks LINE's reply-token timeout.
 
-## Local dev (this machine)
+## Testing on this machine
 
-This machine isn't public, so LINE can't reach its webhook directly — real
-end-to-end testing (actually messaging the bot in a LINE group) only
-happens after deploying to the production host, or with a temporary public
-tunnel (e.g. `cloudflared tunnel --url http://127.0.0.1:8801`) pointed at a
-webhook URL you set temporarily in the LINE console.
+**This machine IS the production host.** `hostname` is `eng-ai`, and
+`eng-ai.buu.ac.th` resolves to 10.5.23.117, one of its own addresses; the
+NGINX here proxies `/line/webhook` to the container on `127.0.0.1:8801`, and
+that public URL answers `400` to an unsigned POST — i.e. the live webhook is
+this container. There is no separate box to deploy to, and no tunnel needed
+for end-to-end testing: messaging the bot in the LINE group exercises this
+checkout directly.
 
-Until then, test the RAG + LLM pipeline directly, bypassing LINE:
+The flip side is that there is no staging. Anything you run here is running
+against the live bot, and `docker compose up -d` / `restart` briefly drops
+the webhook and clears every pilot's conversation memory. Prefer testing the
+RAG + LLM pipeline directly, which touches no LINE state:
 
 ```bash
 docker compose up --build -d
@@ -227,11 +232,14 @@ docker compose exec ppg-bot python scripts/ask.py --show-retrieval "your questio
 docker compose logs -f
 ```
 
-## Deploying to eng-ai.buu.ac.th (production)
+## Deploying (this host is production)
 
-1. Copy this project to the production host (rsync/git), including `.env`
-   with real secrets (never commit `.env`).
-2. On the production host:
+Deploying is just pulling and rebuilding in place — there is no remote host
+to copy to. `.env` (live LINE + OpenRouter secrets) already exists here and
+is never committed.
+
+1. `git pull`
+2. Rebuild and restart:
    ```bash
    docker compose up --build -d
    ```
@@ -287,7 +295,7 @@ curl -s https://openrouter.ai/api/v1/key -H "Authorization: Bearer $OPENROUTER_A
 
 ## Changing the model
 
-Edit `OPENROUTER_MODEL` in `.env` on the production host, then:
+Edit `OPENROUTER_MODEL` in `.env`, then:
 
 ```bash
 docker compose up -d --force-recreate
