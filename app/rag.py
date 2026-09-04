@@ -38,6 +38,12 @@ about specific products, specs, or procedures.
 procedure, the MANUFACTURER'S MANUAL WINS. Give the manual's position, then \
 note what the website adds or contradicts — never silently prefer the \
 website over the manual.
+- The excerpts are SEARCH RESULTS, not whole documents. Never state or \
+imply that a manual "does not cover", "does not mention" or "is silent on" \
+something — you cannot see the whole manual, only what the search returned, \
+and the procedure may well be in a section you weren't shown. If the manual \
+excerpts don't address the point, just answer from the website without \
+characterising what the manual contains.
 - Cite EVERY factual claim inline, right where you make it:
   * manual  -> (Dudek Hadron 3 (2024), Technical Data)
   * website -> ({site}: Clogged muffler — https://www.example.com/page.htm)
@@ -352,6 +358,23 @@ async def answer_with_source(
     terms = _parse_retry(reply)
     if terms is None:
         declared, body = _split_sources_line(reply)
+        source = _classify_sources(declared, body)
+        if source != "website":
+            return body, source
+        # An answer built only from the website is the case where a missed
+        # manual chunk does the most damage — it sends a pilot to third-party
+        # guidance for something the manufacturer documents. That is not
+        # hypothetical: "how to fix or replace the pull starter of Thor 100"
+        # is answered by the website, while the Thor 100 manual's own
+        # "Starter Rope Replacement" section ranks 18th and never made the
+        # first pass. So widen the manual search and ask again before
+        # serving it.
+        logger.info("Website-only answer — re-checking manuals top-%d", settings.manual_retry_k)
+        wider = await _ask(
+            query, expanded, expanded, history, final=True,
+            manual_k=settings.manual_retry_k,
+        )
+        declared, body = _split_sources_line(wider)
         return body, _classify_sources(declared, body)
 
     logger.info("First pass insufficient — retrying wider, searching %r", terms)

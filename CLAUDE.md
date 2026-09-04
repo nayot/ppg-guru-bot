@@ -120,6 +120,18 @@ go to the model in one call. Four things here are easy to get wrong:
   "ท่อไอเสีย Top 80 อุดตันเขม่า" ranks the right page 43rd, its English
   rendering 1st.
 
+- **A website-only answer always triggers a wider manual re-check** before
+  it is served. The retry rung above only fires when *neither* source
+  answered, which misses the more dangerous case: the website answers well
+  while a relevant manual section was never retrieved. "How to fix or
+  replace the pull starter of Thor 100" did exactly this — the Thor 100
+  manual's §9.4 "Starter Rope Replacement" ranks 18th for that phrasing, so
+  the bot claimed the manual didn't cover it and recommended a clone
+  starter. Costs one extra call, only on website-only answers.
+- **Never let the model assert what a manual lacks.** The prompt forbids
+  "the manual does not cover/mention X": excerpts are search results, not
+  whole documents, and the section may simply not have been retrieved.
+
 The source header is built in code from the model's own `SOURCES:`
 declaration, which is stripped from the reply and cross-checked against it:
 website citations must carry a full URL, so the site's domain appearing in

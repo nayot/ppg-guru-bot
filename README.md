@@ -171,6 +171,21 @@ used — and the question is asked again with:
   อุดตันเขม่า ทำความสะอาดอย่างไร" ranks the right page **43rd**, while the
   model's English rendering of it ranks that page **1st**.
 
+There is a **second trigger for that wider manual search**: any answer that
+came out website-only. That is the case where a missed manual chunk does the
+most damage — it sends a pilot to third-party guidance for something the
+manufacturer documents. Real example: "how to fix or replace the pull
+starter of Thor 100" is answered well by the website, while the Thor 100
+manual's own §9.4 "Starter Rope Replacement" ranks **18th** for that
+phrasing and never reached the first pass. The bot then told the pilot the
+manual didn't cover it and recommended a clone starter. With the re-check it
+leads with the manual's official procedure and offers the third-party part
+as the alternative.
+
+Relatedly, the prompt forbids claiming a manual "doesn't cover" something.
+Excerpts are search results, not whole documents, and absence from a search
+is not absence from the manual.
+
 If the second pass still can't answer, the bot says so plainly in the
 pilot's language and attaches no source header — a non-answer is not
 attributed to anyone.
