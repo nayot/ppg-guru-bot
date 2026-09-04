@@ -5,12 +5,13 @@ and motors, grounded in the manuals under `manuals/`, with the Southwest
 Airsports website as a clearly-labelled secondary source.
 
 - Responds only when @mentioned in a group/room; always responds in 1:1 chat.
-- **Two grounded sources, manuals first.** Every answer is tried against the
-  indexed manufacturer manuals first. Only if they genuinely don't cover the
-  question does the bot fall back to an indexed copy of
-  https://www.southwestairsports.com/. Every reply is prefixed with the
-  source it came from, so a pilot can always tell manufacturer documentation
-  from third-party web guidance — see "The web fallback source" below.
+- **Two grounded sources, cited per claim.** Every question searches both
+  the indexed manufacturer manuals and an indexed copy of
+  https://www.southwestairsports.com/, and a single answer may draw on both.
+  Each claim is cited inline to the manual section or website page it came
+  from, and the reply is prefixed with which sources were used, so a pilot
+  can tell manufacturer documentation from third-party web guidance — see
+  "The two sources" below.
 - Retrieval uses a multilingual embedding model, so a Thai question can
   still retrieve the right (English) manual passage; the LLM is instructed
   to reply in whatever language the question was asked in.
@@ -77,15 +78,15 @@ already talks about "wings and motors" generically.
 is also built automatically — but only if it's still empty; once it has
 been built once, you must use `--rebuild` to pick up new/changed files.)
 
-## The web fallback source
+## The two sources
 
-The manuals stay primary. `app/web_ingest.py` crawls
+`app/web_ingest.py` crawls
 https://www.southwestairsports.com/ (Had Robinson's paramotor technical
 site — Top 80 / Moster / Thor service notes, carburetor rebuilds, fuel
 systems, weather) and indexes it into a **separate** Chroma collection
 (`website`) in the same `data/` volume. Keeping it out of the `manuals`
-collection is deliberate: a web page can never be silently retrieved and
-cited as though it were a manufacturer's manual.
+collection is deliberate: the two are retrieved and labelled separately, so
+a web page can never be silently presented as a manufacturer's manual.
 
 It reads the site's `sitemap.xml`, indexes only HTML pages (images and PDFs
 are skipped), honours `robots.txt`, and pauses `WEBSITE_CRAWL_DELAY` seconds
@@ -124,54 +125,67 @@ serve the new content. That restart also clears in-process conversation
 memory, which is why it doesn't happen on the many days nothing changes.
 Logs go to `logs/website-refresh.log`.
 
-Answers from the website carry the crawl date, so a pilot who follows a
-cited link knows which version the bot spoke for:
+Answers drawing on the website carry the crawl date, so a pilot who follows
+a cited link knows which version the bot spoke for:
 
-> 🌐 Source: Southwest Airsports website, indexed 2026-09-04 — not a
-> manufacturer manual
+> 📘🌐 Sources: manufacturer manuals + Southwest Airsports website, indexed
+> 2026-09-04 (third-party)
 
 Two limits worth knowing: a sitemap entry with no `lastmod` can't be proven
 unchanged, so it's re-fetched every run (this site declares `lastmod` on all
 1702 entries, so it doesn't bite here); and a page edited *without* its
 `lastmod` moving will be missed until the next `--rebuild`.
 
-### How the bot decides the manuals "have nothing"
+### How an answer is put together
 
-Not by a similarity threshold — those don't work here. Every chunk in the
-index is paramotor prose, so embedding distances land in a narrow band and
-rank nonsense above real matches: "how do I fix a clogged muffler on a
-Top 80" (not in any manual) scores **0.88** against the manuals while a
-genuine question about the Hadron 3's take-off weight scores **0.86**, and
-"how do I bake sourdough bread" outscores a real Thai question.
+Both collections are searched on every question, and both sets of excerpts
+go to the model in a single call, clearly separated. It is free to blend
+them, under two standing rules:
 
-Whether excerpts actually answer a question is reading comprehension, so
-the model decides:
+- **The manufacturer's manual wins.** Where the two disagree, or where the
+  website extends a manufacturer procedure, the answer gives the manual's
+  position and then notes what the website adds or contradicts.
+- **Every claim is cited where it is made** — `(Dudek Hadron 3 (2024),
+  Technical Data)` for a manual, `(Southwest Airsports: Clogged muffler —
+  https://...)` for a page. Website claims touching maintenance or anything
+  safety-critical also carry a note that it is the site author's guidance.
 
-1. Ask the LLM with the top-`TOP_K` manual excerpts. If they answer, done —
-   the reply is labelled as coming from the manuals.
-2. If not, the model replies with `NEED_WEB: <english search terms>` — a
-   sentinel rather than prose, so the handoff is detected exactly no matter
-   which language the pilot is using. The English terms come free (the model
-   has already read the question) and are what make the web fallback work
-   cross-lingually: the raw Thai question "ท่อไอเสีย Top 80 อุดตันเขม่า
-   ทำความสะอาดอย่างไร" ranks the right page **43rd** in the web collection,
-   while the model's English rendering of it ranks that page **1st**.
-   The manuals then get a **second, much wider pass** (`MANUAL_RETRY_K`, default 25) before being given up on —
-   spec tables rank badly against natural-language questions, and sibling
-   models crowd each other out. The Hadron 3's own take-off weight table
-   sits at rank 20 for "what is the max take-off weight of the Hadron 3",
-   below the Hadron 4's; without this pass the bot would send a pilot to a
-   website for a number printed in their own manual.
-3. Only if that also comes back `NEED_WEB` is the website collection
-   queried, with a prompt that requires citing the page title and full URL
-   and noting that the manufacturer's manual takes precedence.
-4. If the website doesn't cover it either, the bot says so plainly rather
-   than labelling a non-answer with a source.
+The model then declares which sources it actually used, and that drives the
+header. The declaration is cross-checked against the answer: website
+citations must carry a full URL, so the site's domain appearing in the body
+is hard evidence the website was used, whatever the model claimed.
 
-The extra LLM calls only happen on the fallback path; a question the
-manuals answer still costs exactly one call. Replies are dispatched from a
-FastAPI background task, so the added latency never risks LINE's reply-token
-timeout.
+There is **one retry rung**, for when neither source answered on the first
+pass. The model replies `INSUFFICIENT: <english search terms>` — a sentinel
+rather than prose, so it is detected exactly whatever language the pilot
+used — and the question is asked again with:
+
+- **a much wider manual search** (`MANUAL_RETRY_K`, default 25). Spec tables
+  rank badly against natural-language questions and sibling models crowd
+  each other out: the Hadron 3's own take-off weight table sits at rank 20
+  for "what is the max take-off weight of the Hadron 3", below the
+  Hadron 4's.
+- **the website re-searched with those English terms.** They cost nothing —
+  the model has already read the question — and they are what makes web
+  retrieval work cross-lingually: the raw Thai question "ท่อไอเสีย Top 80
+  อุดตันเขม่า ทำความสะอาดอย่างไร" ranks the right page **43rd**, while the
+  model's English rendering of it ranks that page **1st**.
+
+If the second pass still can't answer, the bot says so plainly in the
+pilot's language and attaches no source header — a non-answer is not
+attributed to anyone.
+
+Note what does *not* decide any of this: a similarity threshold. Those were
+measured and don't work here. Every chunk in the index is paramotor prose,
+so embedding distances land in a narrow band and rank nonsense above real
+matches — "how do I fix a clogged muffler on a Top 80" (in no manual)
+scores **0.88** against the manuals while a genuine Hadron 3 take-off
+weight question scores **0.86**, and "how do I bake sourdough bread"
+outscores a real Thai question.
+
+A question answered on the first pass costs exactly one LLM call. Replies
+are dispatched from a FastAPI background task, so the retry's latency never
+risks LINE's reply-token timeout.
 
 ## Local dev (this machine)
 
@@ -246,9 +260,9 @@ server's `Retry-After` honoured when sent (capped at `LLM_RETRY_MAX_DELAY`,
 since a pilot is waiting on a reply). Errors that a retry can't fix — 400
 malformed, 401 bad key, 402 out of credits — are raised immediately.
 
-This matters more than it looks: a fallback answer makes up to three LLM
-calls (see above), so without retries a single blip on any one of them costs
-the whole answer.
+This matters more than it looks: a question that needs the retry rung makes
+two LLM calls (see above), so without retries a single blip on either one
+costs the whole answer.
 
 To check the state of a key — credits, spend cap, whether it's free tier:
 

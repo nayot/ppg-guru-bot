@@ -38,8 +38,8 @@ def _retry_delay(attempt: int, response: httpx.Response | None) -> float:
         settings.llm_retry_base_delay * (2 ** (attempt - 1)),
         settings.llm_retry_max_delay,
     )
-    # Jitter, so the answer ladder's two or three calls don't line up and
-    # retry in lockstep into the same throttle.
+    # Jitter, so a question's two calls don't line up and retry in
+    # lockstep into the same throttle.
     return delay * (0.5 + random.random() / 2)
 
 
