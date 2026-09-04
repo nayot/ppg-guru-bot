@@ -1,8 +1,9 @@
 # PPG Guru Bot
 
 LINE group chatbot that answers technical questions about paramotor wings
-and motors, grounded only in the manuals under `manuals/`. Public repo:
-https://github.com/nayot/ppg-guru-bot.
+and motors, grounded in the manuals under `manuals/` first and, only when
+those don't cover the question, in an indexed copy of the Southwest
+Airsports website. Public repo: https://github.com/nayot/ppg-guru-bot.
 
 **Note on history:** this project was originally planned as a Hermes Agent
 profile (`ppg_guru_bot`, see `~/.hermes/profiles/ppg_guru_bot`) with a
@@ -27,6 +28,12 @@ LINE group ─▶ LINE Messaging API ─▶ NGINX (eng-ai.buu.ac.th) ─▶ Fast
                                                      — Thai query → English manual passage
                                                        retrieval works cross-lingually
                                                                        │
+                                                     source ladder (app/rag.py):
+                                                     manuals top-k → manuals wide retry →
+                                                     Southwest Airsports website collection
+                                                     — the model, not a score threshold,
+                                                       decides when to move down a rung
+                                                                       │
                                                      OpenRouter chat completion (app/llm.py)
                                                      — model is a config value, swappable
                                                        via .env without a code change
@@ -41,7 +48,11 @@ LINE group ─▶ LINE Messaging API ─▶ NGINX (eng-ai.buu.ac.th) ─▶ Fast
 
 - `app/main.py` — FastAPI webhook: signature verification, mention gating,
   access whitelist, join/follow handling, background-task dispatch.
-- `app/rag.py` — retrieval + system prompt + OpenRouter call.
+- `app/rag.py` — retrieval, the manuals-first source ladder, system
+  prompts, and the OpenRouter call.
+- `app/web_ingest.py` — crawls the site in `WEBSITE_BASE_URL` from its
+  `sitemap.xml` and indexes the HTML pages into the separate `website`
+  Chroma collection. Run explicitly; never on startup.
 - `app/ingest.py` — walks `manuals/<category>/<brand>/<model>/<year>/manual.md`,
   splits by Markdown headers (depth ≤3), chunks (1500 chars, 200 overlap),
   embeds, and writes to the Chroma collection `manuals` under `data/`.
@@ -77,6 +88,47 @@ a specific wing). Two things to keep in mind if you touch this:
 - Memory resets on container restart (no volume/persistence) — an accepted
   tradeoff for a lightweight continuity feature, not a durable chat log.
 
+## Two sources, and the ladder between them
+
+The manuals are primary; the website is a fallback. Three things about this
+are easy to get wrong if you touch it:
+
+- **The two live in separate Chroma collections** (`manuals` and `website`,
+  both under `data/`), never mixed into one. That's what makes it
+  structurally impossible for a web page to be retrieved and cited as if it
+  were a manufacturer's manual.
+- **A similarity threshold cannot decide "the manuals don't cover this."**
+  It was measured and it doesn't work: every chunk in the index is
+  paramotor prose, so e5 packs the scores into a narrow band. "Clogged
+  muffler on a Top 80" (in no manual) scores 0.88 against the manuals while
+  a genuine Hadron 3 take-off weight question scores 0.86; "how do I bake
+  sourdough bread" outscores a real Thai question. Don't reintroduce a
+  score cutoff here. Instead the LLM reads the excerpts and replies with the
+  bare sentinel `NEED_WEB` when they don't answer — a sentinel rather than
+  prose because the bot answers in whatever language it was asked in, so
+  there is no phrase to match on.
+- **There's a wider second pass over the manuals before the website is
+  consulted** (`MANUAL_RETRY_K`, default 25). It exists because spec tables
+  are dense numeric rows that rank poorly against natural-language
+  questions, and near-identical tables from sibling models crowd each other
+  out — the Hadron 3's own take-off weight table sits at rank 20 for a
+  question naming the Hadron 3, below the Hadron 4's. Without this rung the
+  bot cites a third-party website for figures printed in the manufacturer's
+  own manual. Don't drop it to save a call.
+
+Both source headers (`MANUAL_SOURCE_HEADER` / `WEB_SOURCE_HEADER` in
+`app/rag.py`) are prepended **in code**, not requested from the model, so
+the source label can't be forgotten or hallucinated. When neither source
+answers, no header is attached — a non-answer is not attributed to anyone.
+
+Refreshing the web index is manual and deliberate, exactly like manuals:
+
+    docker compose exec ppg-bot python -m app.web_ingest --rebuild
+
+It is never built on startup (a few hundred outbound requests per restart
+would be wrong); `app/main.py` only logs a warning when it's missing. With
+no web index the bot degrades to its previous manuals-only behaviour.
+
 ## Key behaviors
 
 - Responds only when @mentioned in a group/room; always responds in 1:1 chat
@@ -84,8 +136,11 @@ a specific wing). Two things to keep in mind if you touch this:
 - `ALLOWED_SOURCE_IDS` (env, comma-separated LINE user/group/room IDs) gates
   access. Empty = unrestricted (logs a warning on startup). A non-whitelisted
   group/room that adds the bot gets auto-left (`handle_join`).
-- The system prompt (`app/rag.py`) forbids answering from outside knowledge,
-  requires citing the manual used, and restricts LLM output formatting to
+- Every answer is prefixed with a source line — indexed manufacturer
+  manuals, or the website (explicitly marked "not a manufacturer manual").
+- The system prompts (`app/rag.py`) forbid answering from outside knowledge,
+  require citing the manual used (or the page title + full URL on the web
+  path), and restrict LLM output formatting to
   **bold** and Markdown tables only — `richtext.py` only knows how to render
   those two constructs specially.
 - Vector index (`data/`, a Docker volume) is built automatically on first
@@ -143,9 +198,20 @@ LINE signs the raw request body. Full deploy steps are in `README.md`.
 
 - Model selection lives entirely in `.env` (`OPENROUTER_MODEL`) — never
   hardcode a model slug in code.
+- `app/llm.py` retries 429/5xx with backoff + jitter and honours
+  `Retry-After`; auth/quota/malformed errors are raised immediately. A 429
+  from OpenRouter is normally the *provider* throttling (it forwards their
+  error verbatim), not an account problem — some models, including
+  `qwen/qwen3.7-flash`, have a single provider and so no failover. Keep the
+  retry: the answer ladder makes up to three calls per question, so one
+  transient blip would otherwise lose the whole answer.
 - Never commit `.env` (has live LINE + OpenRouter secrets) or `pdf/` sources.
 - `manuals/` (converted manual text) IS committed and public — a known,
   accepted copyright tradeoff, not an oversight. Don't "fix" this by adding
   `.gitignore` entries for it.
 - Keep the LLM's allowed output formatting (bold + one table syntax) and
-  `richtext.py`'s parsing in sync if either changes — they're coupled.
+  `richtext.py`'s parsing in sync if either changes — they're coupled. Note
+  this is why the web prompt asks for bare URLs as plain text: `richtext.py`
+  has no Markdown-link handling, so `[text](url)` would render literally.
+- Never let the website become a co-equal source of specs. It's a fallback,
+  it is labelled as third-party, and the manuals are always tried first.

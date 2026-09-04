@@ -17,7 +17,7 @@ from linebot.v3.webhooks import FollowEvent, JoinEvent, MessageEvent, TextMessag
 from app.config import settings
 from app.ingest import build_index
 from app import memory
-from app.rag import answer
+from app.rag import answer, web_index_size
 from app.richtext import build_reply_message
 
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +28,20 @@ logger = logging.getLogger("ppg-bot")
 async def lifespan(app: FastAPI):
     count = build_index(rebuild=False)
     logger.info("Vector store ready with %d chunks", count)
+    # The web fallback index is never built here: crawling the site is a few
+    # hundred outbound requests and shouldn't happen on every restart. Run
+    # `python -m app.web_ingest --rebuild` to build or refresh it.
+    web_count = web_index_size()
+    if web_count:
+        logger.info(
+            "Fallback source %s ready with %d chunks", settings.website_name, web_count
+        )
+    else:
+        logger.warning(
+            "No web fallback index — questions the manuals don't cover will get "
+            "a 'not in the manuals' answer. Build it with: "
+            "python -m app.web_ingest --rebuild"
+        )
     yield
 
 

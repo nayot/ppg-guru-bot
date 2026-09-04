@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.rag import answer, retrieve
+from app.rag import answer_with_source, retrieve, retrieve_website, with_source_header
 
 
 async def main():
@@ -26,14 +26,20 @@ async def main():
     question = " ".join(args)
 
     if show_retrieval:
-        print("--- retrieved chunks ---")
+        print("--- retrieved manual chunks ---")
         for hit in retrieve(question):
             m = hit["meta"]
             print(f"[{m.get('brand')} {m.get('model')} {m.get('year')} - {m.get('section')}]")
         print()
+        print("--- retrieved website chunks (fallback candidates) ---")
+        for hit in retrieve_website(question):
+            m = hit["meta"]
+            print(f"[{m.get('title')}] {m.get('url')}")
+        print()
 
-    print("--- answer ---")
-    print(await answer(question))
+    reply, source = await answer_with_source(question)
+    print(f"--- answer (source: {source}) ---")
+    print(with_source_header(reply, source))
 
 
 if __name__ == "__main__":

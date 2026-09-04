@@ -1,9 +1,16 @@
 # PPG Guru Bot
 
 LINE group chatbot that answers technical questions about paramotor wings
-and motors, grounded in the manuals under `manuals/`.
+and motors, grounded in the manuals under `manuals/`, with the Southwest
+Airsports website as a clearly-labelled secondary source.
 
 - Responds only when @mentioned in a group/room; always responds in 1:1 chat.
+- **Two grounded sources, manuals first.** Every answer is tried against the
+  indexed manufacturer manuals first. Only if they genuinely don't cover the
+  question does the bot fall back to an indexed copy of
+  https://www.southwestairsports.com/. Every reply is prefixed with the
+  source it came from, so a pilot can always tell manufacturer documentation
+  from third-party web guidance — see "The web fallback source" below.
 - Retrieval uses a multilingual embedding model, so a Thai question can
   still retrieve the right (English) manual passage; the LLM is instructed
   to reply in whatever language the question was asked in.
@@ -70,6 +77,65 @@ already talks about "wings and motors" generically.
 is also built automatically — but only if it's still empty; once it has
 been built once, you must use `--rebuild` to pick up new/changed files.)
 
+## The web fallback source
+
+The manuals stay primary. `app/web_ingest.py` crawls
+https://www.southwestairsports.com/ (Had Robinson's paramotor technical
+site — Top 80 / Moster / Thor service notes, carburetor rebuilds, fuel
+systems, weather) and indexes it into a **separate** Chroma collection
+(`website`) in the same `data/` volume. Keeping it out of the `manuals`
+collection is deliberate: a web page can never be silently retrieved and
+cited as though it were a manufacturer's manual.
+
+Build or refresh it (it is *not* built automatically on startup — it makes
+a few hundred outbound requests):
+
+```bash
+docker compose exec ppg-bot python -m app.web_ingest --rebuild
+```
+
+It reads the site's `sitemap.xml`, indexes only HTML pages (images and PDFs
+are skipped), honours `robots.txt`, and pauses `WEBSITE_CRAWL_DELAY` seconds
+between fetches. Currently ~299 pages → ~1540 chunks.
+
+### How the bot decides the manuals "have nothing"
+
+Not by a similarity threshold — those don't work here. Every chunk in the
+index is paramotor prose, so embedding distances land in a narrow band and
+rank nonsense above real matches: "how do I fix a clogged muffler on a
+Top 80" (not in any manual) scores **0.88** against the manuals while a
+genuine question about the Hadron 3's take-off weight scores **0.86**, and
+"how do I bake sourdough bread" outscores a real Thai question.
+
+Whether excerpts actually answer a question is reading comprehension, so
+the model decides:
+
+1. Ask the LLM with the top-`TOP_K` manual excerpts. If they answer, done —
+   the reply is labelled as coming from the manuals.
+2. If not, the model replies with `NEED_WEB: <english search terms>` — a
+   sentinel rather than prose, so the handoff is detected exactly no matter
+   which language the pilot is using. The English terms come free (the model
+   has already read the question) and are what make the web fallback work
+   cross-lingually: the raw Thai question "ท่อไอเสีย Top 80 อุดตันเขม่า
+   ทำความสะอาดอย่างไร" ranks the right page **43rd** in the web collection,
+   while the model's English rendering of it ranks that page **1st**.
+   The manuals then get a **second, much wider pass** (`MANUAL_RETRY_K`, default 25) before being given up on —
+   spec tables rank badly against natural-language questions, and sibling
+   models crowd each other out. The Hadron 3's own take-off weight table
+   sits at rank 20 for "what is the max take-off weight of the Hadron 3",
+   below the Hadron 4's; without this pass the bot would send a pilot to a
+   website for a number printed in their own manual.
+3. Only if that also comes back `NEED_WEB` is the website collection
+   queried, with a prompt that requires citing the page title and full URL
+   and noting that the manufacturer's manual takes precedence.
+4. If the website doesn't cover it either, the bot says so plainly rather
+   than labelling a non-answer with a source.
+
+The extra LLM calls only happen on the fallback path; a question the
+manuals answer still costs exactly one call. Replies are dispatched from a
+FastAPI background task, so the added latency never risks LINE's reply-token
+timeout.
+
 ## Local dev (this machine)
 
 This machine isn't public, so LINE can't reach its webhook directly — real
@@ -87,8 +153,9 @@ curl http://127.0.0.1:8801/healthz
 # ask it something
 docker compose exec ppg-bot python scripts/ask.py "What is the MTOW of the Cosmos Power 2?"
 
-# also show which manual sections were retrieved (useful for debugging
-# bad/irrelevant answers)
+# also show which manual sections AND website pages were retrieved, plus
+# which source the answer ended up using (useful for debugging bad or
+# wrongly-routed answers)
 docker compose exec ppg-bot python scripts/ask.py --show-retrieval "your question"
 
 docker compose logs -f
@@ -123,6 +190,35 @@ docker compose logs -f
    `https://eng-ai.buu.ac.th/line/webhook` and click **Verify**.
 6. Add the bot to the target LINE group and mention it to test.
 
+## Upstream rate limits / transient failures
+
+OpenRouter forwards the *provider's* own errors verbatim, so a 429 here
+usually means the provider serving your chosen model is throttling or at
+capacity — not that your account is out of credit. It's worth knowing which
+providers serve a model, because a single-provider model has nothing to fail
+over to:
+
+```bash
+curl -s https://openrouter.ai/api/v1/models/<author>/<slug>/endpoints \
+  | python3 -c "import json,sys; [print(e['provider_name']) for e in json.load(sys.stdin)['data']['endpoints']]"
+```
+
+`app/llm.py` retries these automatically: `LLM_MAX_ATTEMPTS` (default 3)
+attempts on 429/500/502/503/504, with exponential backoff, jitter, and the
+server's `Retry-After` honoured when sent (capped at `LLM_RETRY_MAX_DELAY`,
+since a pilot is waiting on a reply). Errors that a retry can't fix — 400
+malformed, 401 bad key, 402 out of credits — are raised immediately.
+
+This matters more than it looks: a fallback answer makes up to three LLM
+calls (see above), so without retries a single blip on any one of them costs
+the whole answer.
+
+To check the state of a key — credits, spend cap, whether it's free tier:
+
+```bash
+curl -s https://openrouter.ai/api/v1/key -H "Authorization: Bearer $OPENROUTER_API_KEY"
+```
+
 ## Changing the model
 
 Edit `OPENROUTER_MODEL` in `.env` on the production host, then:
@@ -137,7 +233,11 @@ docker compose up -d --force-recreate
   Thor 100/Thor 200, Simonini Mini 2 Plus, Sky Engines SKY 110S/SKY 150,
   Vittorazi Atom 80, and Vittorazi Moster 185 Plus. See "Adding manuals"
   above to add more.
-- Answers are generated only from retrieved manual excerpts and the model
+- The website index goes stale as the site changes; re-run
+  `python -m app.web_ingest --rebuild` periodically to refresh it. The
+  crawler currently indexes HTML pages only — the ~280 PDFs linked from the
+  site (service bulletins, parts diagrams) are not indexed.
+- Answers are generated only from retrieved manual/website excerpts and the model
   is instructed to say so when it can't find something — but this is not a
   substitute for the manufacturer's manual or a certified instructor,
   especially for safety-critical procedures. The system prompt already
