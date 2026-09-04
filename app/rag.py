@@ -100,7 +100,7 @@ ask a certified instructor. Do not copy this instruction's English wording.
 # Prepended in code rather than left to the model, so the pilot can always
 # tell a manufacturer's manual from a third-party website at a glance.
 MANUAL_SOURCE_HEADER = "**📘 Source: indexed manufacturer manuals**"
-WEB_SOURCE_HEADER = "**🌐 Source: {site} website — not a manufacturer manual**"
+WEB_SOURCE_HEADER = "**🌐 Source: {site} website{asof} — not a manufacturer manual**"
 
 _client = None
 _collections: dict[str, object] = {}
@@ -141,6 +141,22 @@ def retrieve_website(query: str, k: int | None = None) -> list[dict]:
         return []
     collection = _get_collection(settings.website_collection)
     return _query(collection, query, k or settings.website_top_k)
+
+
+def web_indexed_on() -> str:
+    """Date of the last web crawl ("" if unknown), for the source header.
+
+    A pilot who follows a cited URL sees the page as it is now, not as it
+    was indexed, so the answer says which one it is speaking for. Read from
+    a fresh collection handle rather than the cached one, because a refresh
+    runs in a separate process and the cached handle's metadata is a
+    snapshot from process start.
+    """
+    try:
+        collection = _get_client().get_collection(settings.website_collection)
+        return (collection.metadata or {}).get("last_crawl", "")[:10]
+    except Exception:
+        return ""
 
 
 def web_index_size() -> int:
@@ -345,7 +361,11 @@ def with_source_header(reply: str, source: str) -> str:
     if source == "manuals":
         return f"{MANUAL_SOURCE_HEADER}\n{reply}"
     if source == "website":
-        header = WEB_SOURCE_HEADER.format(site=settings.website_name)
+        indexed_on = web_indexed_on()
+        header = WEB_SOURCE_HEADER.format(
+            site=settings.website_name,
+            asof=f", indexed {indexed_on}" if indexed_on else "",
+        )
         return f"{header}\n{reply}"
     return reply
 

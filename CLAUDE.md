@@ -121,13 +121,29 @@ Both source headers (`MANUAL_SOURCE_HEADER` / `WEB_SOURCE_HEADER` in
 the source label can't be forgotten or hallucinated. When neither source
 answers, no header is attached — a non-answer is not attributed to anyone.
 
-Refreshing the web index is manual and deliberate, exactly like manuals:
+The web index is refreshed by cron, not on startup (a few hundred outbound
+requests per restart would be wrong); `app/main.py` only logs a warning when
+it's missing, and with no web index the bot degrades to manuals-only.
 
-    docker compose exec ppg-bot python -m app.web_ingest --rebuild
+`scripts/refresh-website.sh` runs nightly and does an **incremental**
+refresh: the sitemap's per-URL `lastmod` is stored on every chunk, so only
+changed pages are re-fetched (a no-change night is one sitemap fetch, ~6s,
+versus ~4min for a full crawl), URLs that left the sitemap are dropped, and
+navigation stubs with no prose are remembered in the collection's own
+metadata so they aren't re-fetched nightly. `--rebuild` still forces a full
+wipe and re-crawl; `--dry-run` reports the plan without fetching.
 
-It is never built on startup (a few hundred outbound requests per restart
-would be wrong); `app/main.py` only logs a warning when it's missing. With
-no web index the bot degrades to its previous manuals-only behaviour.
+The script restarts the container only when something changed — the server
+holds Chroma open from process start, so the restart is what makes it serve
+new content, and it also wipes conversation memory, so it shouldn't happen
+on quiet nights. If you change the ingest metadata shape, run `--rebuild`
+once: chunks written by an older version have no `lastmod` and will look
+changed on every incremental run until they're rewritten.
+
+The crawl date lives in the collection's `last_crawl` metadata and is shown
+in the web source header ("indexed 2026-09-04"). `web_indexed_on()` reads it
+from a *fresh* collection handle on purpose — the refresh runs in a separate
+process, so the cached handle's metadata is a snapshot from process start.
 
 ## Key behaviors
 

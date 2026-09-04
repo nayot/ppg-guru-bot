@@ -87,16 +87,53 @@ systems, weather) and indexes it into a **separate** Chroma collection
 collection is deliberate: a web page can never be silently retrieved and
 cited as though it were a manufacturer's manual.
 
-Build or refresh it (it is *not* built automatically on startup — it makes
-a few hundred outbound requests):
-
-```bash
-docker compose exec ppg-bot python -m app.web_ingest --rebuild
-```
-
 It reads the site's `sitemap.xml`, indexes only HTML pages (images and PDFs
 are skipped), honours `robots.txt`, and pauses `WEBSITE_CRAWL_DELAY` seconds
-between fetches. Currently ~299 pages → ~1540 chunks.
+between fetches. Currently ~299 pages → ~1543 chunks.
+
+```bash
+docker compose exec ppg-bot python -m app.web_ingest            # incremental
+docker compose exec ppg-bot python -m app.web_ingest --dry-run  # show the plan
+docker compose exec ppg-bot python -m app.web_ingest --rebuild  # wipe + re-crawl
+```
+
+### Keeping it fresh
+
+The index is a snapshot, and nothing re-crawls on its own — startup only
+reads the count. Left alone it drifts: a changed page means the bot answers
+from old text while citing the **live** URL, a deleted page means it cites a
+404, and a new page stays invisible.
+
+So a cron job refreshes it daily (installed on this host, `crontab -l`):
+
+```cron
+30 3 * * * /path/to/ppg-guru-bot/scripts/refresh-website.sh
+```
+
+That runs an **incremental** refresh. The sitemap gives a `lastmod` per URL
+and every chunk records the `lastmod` it was built from, so only genuinely
+changed pages are re-fetched: a no-change day is one sitemap fetch and ~6
+seconds, versus ~4 minutes and 299 fetches for a full rebuild. Pages that
+have left the sitemap are dropped, so the bot stops citing dead URLs. Pages
+that are pure navigation stubs are remembered as such, so they aren't
+re-fetched every night just because they hold no prose.
+
+The script restarts the bot **only when the index actually changed** — the
+server holds Chroma open from process start, so a restart is what makes it
+serve the new content. That restart also clears in-process conversation
+memory, which is why it doesn't happen on the many days nothing changes.
+Logs go to `logs/website-refresh.log`.
+
+Answers from the website carry the crawl date, so a pilot who follows a
+cited link knows which version the bot spoke for:
+
+> 🌐 Source: Southwest Airsports website, indexed 2026-09-04 — not a
+> manufacturer manual
+
+Two limits worth knowing: a sitemap entry with no `lastmod` can't be proven
+unchanged, so it's re-fetched every run (this site declares `lastmod` on all
+1702 entries, so it doesn't bite here); and a page edited *without* its
+`lastmod` moving will be missed until the next `--rebuild`.
 
 ### How the bot decides the manuals "have nothing"
 
